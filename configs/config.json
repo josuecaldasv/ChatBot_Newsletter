@@ -1,0 +1,22 @@
+{
+    "embeddings": {
+      "model_name": "intfloat/multilingual-e5-large",
+      "output_dir": "embeddings"
+    },
+    "retrieve": {
+      "top_k": 5
+    },
+    "splitter": {
+      "type": "recursive",
+      "chunk_size": 500,
+      "chunk_overlap": 50
+    },
+    "openai": {
+      "model_name": "gpt-4o-mini-2024-07-18",
+      "temperature": 0.5
+    },
+    "paths": {
+      "input_path": "input/*.docx",
+      "output_dir": "embeddings/"
+    }
+  }  
