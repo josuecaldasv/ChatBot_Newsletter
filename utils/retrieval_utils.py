@@ -110,6 +110,8 @@ def get_embeddings(chunk_size, chunk_overlap, model_name, input_path, output_dir
     if not doc_files:
         print(f"No .docx files found in path: {input_path}")
         return
+    
+    os.makedirs(output_dir, exist_ok=True)
 
     emb_files = glob.glob(os.path.join(output_dir, "*.h5"))
     for file in emb_files:
