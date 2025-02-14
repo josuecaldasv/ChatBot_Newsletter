@@ -27,7 +27,11 @@ Install the necessary Python dependencies:
 pip install -r requirements.txt
 ```
 
-### 3. Generate Embeddings
+### 3. Create an `.env` File
+
+- Create a `.env` file in the root directory and insert your OpenAI key with the name `OPENAI_API_KEY`.
+
+### 4. Generate Embeddings
 
 Run the following command to generate embeddings. Note that this process may take approximately 15 minutes:
 
@@ -35,7 +39,7 @@ Run the following command to generate embeddings. Note that this process may tak
 python generate_embeddings.py
 ```
 
-### 4. Run the Chatbot
+### 5. Run the Chatbot
 
 Start the chatbot application by running:
 
@@ -44,7 +48,3 @@ python app.py
 ```
 
 You will be able to interact with the chatbot via the terminal.
-
----
-
-Feel free to submit issues or contribute to the project by creating pull requests.
