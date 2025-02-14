@@ -2,47 +2,27 @@ import torch
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter, CharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import glob
 import os
+import re
 
 from utils import base_utils as bu
 
+
 def load_model(model_name):
     """
-    Objective:
-        Load a SentenceTransformer model with the appropriate device (CUDA if available).
-
-    Parameters:
-        model_name (str): The name or path of the SentenceTransformer model.
-
-    Output:
-        SentenceTransformer: Loaded model ready for encoding.
+    Load a SentenceTransformer model.
     """
-    if torch.cuda.is_available():
-        device = "cuda"
-        print(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
-    else:
-        device = "cpu"
-        print("CUDA is not available. Using CPU.")
-    
-    return SentenceTransformer(model_name, device=device)
+    return SentenceTransformer(model_name, device="cpu")
+
 
 def get_text_splitter(splitter_type, chunk_size, chunk_overlap):
     """
-    Objective:
-        Retrieve the appropriate text splitter based on a specified type.
-
-    Parameters:
-        splitter_type (str)  : The type of splitter ('recursive', 'tokens', 'semantic').
-        chunk_size (int)     : The size of each text chunk.
-        chunk_overlap (int)  : The overlap between consecutive text chunks.
-
-    Output:
-        A text splitter object compatible with LangChain document splitting.
+    Retrieve the appropriate text splitter based on a specified type.
     """
     if splitter_type == "recursive":
         return RecursiveCharacterTextSplitter(
@@ -65,23 +45,63 @@ def get_text_splitter(splitter_type, chunk_size, chunk_overlap):
             chunk_overlap=chunk_overlap,
             length_function=len
         )
+    
+
+def is_title_line(line: str) -> bool:
+    """
+    Checks if a given line is fully uppercase and ends with '(DD/MM/YYYY)'.
+    """
+    if line != line.upper():
+        return False
+
+    pattern = re.compile(r"\(\d{2}\/\d{2}\/\d{4}\)$")
+    return bool(pattern.search(line))
+
+
+def parse_news_blocks(text: str):
+    """
+    Splits the entire .docx text into multiple news blocks by identifying lines
+    that are fully uppercase AND end with a date '(DD/MM/YYYY)' as the block title.
+    Everything else until the next title line is considered the block content.
+    """
+    lines = text.split("\n")
+    blocks = []
+    current_block = None
+
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            if current_block and current_block["content"]:
+                current_block["content"] += "\n"
+            continue
+
+        if is_title_line(line_stripped):
+            if current_block:
+                blocks.append(current_block)
+
+            current_block = {
+                "title": line_stripped,
+                "content": ""
+            }
+        else:
+            if current_block:
+                if current_block["content"] == "":
+                    current_block["content"] = line_stripped
+                else:
+                    current_block["content"] += "\n" + line_stripped
+            else:
+                continue
+
+    if current_block:
+        blocks.append(current_block)
+
+    return blocks
+
 
 def get_embeddings(chunk_size, chunk_overlap, model_name, input_path, output_dir, splitter_type, retrieval_model):
     """
-    Objective:
-        Generate embeddings for .docx files by splitting them into chunks and encoding them using a specified model.
-    
-    Parameters:
-        chunk_size (int)           : The size of each text chunk.
-        chunk_overlap (int)        : The overlap between consecutive text chunks.
-        model_name (str)           : The name of the model to use for generating embeddings.
-        input_path (str)           : The path pattern for input .docx files.
-        output_dir (str)           : The directory to save the generated embeddings.
-        splitter_type (str)        : The type of splitter ('recursive', 'tokens', 'semantic').
-        retrieval_model            : The SentenceTransformer (or similar) model used to encode text.
-    
-    Output:
-        None: The function saves the embeddings to HDF5 files in the specified output directory.
+    Generate embeddings for .docx files by splitting them into chunks and encoding them using a specified model.
+    Also stores the "source_title" for each chunk.
     """
 
     text_splitter = get_text_splitter(splitter_type, chunk_size, chunk_overlap)
@@ -109,41 +129,38 @@ def get_embeddings(chunk_size, chunk_overlap, model_name, input_path, output_dir
 
         print(f"Generating embeddings for: {file_name}")
         text = bu.load_text(file)
-        
-        splitted_docs = text_splitter.split_text(text)
+        blocks = parse_news_blocks(text)
 
         embeddings_list = []
         content_list = []
+        source_title_list = []
 
-        for segment in splitted_docs:
-            embeddings = retrieval_model.encode(segment)
-            embeddings_list.append(embeddings)
-            content_list.append(segment)
-        
+        for block in blocks:
+            title = block["title"]
+            content = block["content"]
+
+            splitted_docs = text_splitter.split_text(content)
+            for chunk in splitted_docs:
+
+                embeddings = retrieval_model.encode(chunk)
+                embeddings_list.append(embeddings)
+                content_list.append(chunk)
+                source_title_list.append(title)
+
         embeddings_df = pd.DataFrame(embeddings_list)
         embeddings_df["segment_content"] = content_list
+        embeddings_df["source_title"] = source_title_list
         embeddings_df["model_name"] = model_name
         embeddings_df["segment_content"] = embeddings_df["segment_content"].astype(str)
+        embeddings_df["source_title"] = embeddings_df["source_title"].astype(str)
         embeddings_df["model_name"] = embeddings_df["model_name"].astype(str)
 
         embeddings_df.to_hdf(output_file, key="df", mode="w", format="table")
     
-def search_query(query, corpus_embeddings, retrieval_model, segment_contents, top_k=5):
+
+def search_query(query, corpus_embeddings, retrieval_model, segment_contents, segment_sources, top_k=5):
     """
-    Objective:
-        Search for the top-k most similar text segments to a given query using precomputed embeddings.
-    
-    Parameters:
-        query (str)                      : The search query string.
-        corpus_embeddings (torch.Tensor) : The tensor containing embeddings of text segments.
-        retrieval_model                  : The model used to encode the query into an embedding.
-        segment_contents (list)          : The list of text segment contents corresponding to the embeddings.
-        top_k (int)                      : The number of top similar segments to return.
-    
-    Output:
-        tuple: A tuple containing:
-            - top_segments (list)     : The list of top-k most similar text segments.
-            - top_similarities (list) : The list of similarity scores for the top-k segments.
+    Search for the top-k most similar text segments to a given query using precomputed embeddings.
     """
 
     query_embedding = retrieval_model.encode(query, convert_to_tensor=True)
@@ -151,39 +168,35 @@ def search_query(query, corpus_embeddings, retrieval_model, segment_contents, to
 
     top_similarities, topk_indices = torch.topk(similarity_scores, k=top_k)
     top_segments = [segment_contents[idx] for idx in topk_indices]
+    top_srcs = [segment_sources[idx] for idx in topk_indices]
 
-    return top_segments, top_similarities
+    return top_segments, top_similarities, top_srcs
+
 
 def load_embeddings(embeddings_dir):
     """
-    Objective:
-        Load embeddings and associated metadata from HDF5 files in a specified directory.
-    
-    Parameters:
-        embeddings_dir (str): The directory containing the HDF5 embedding files.
-    
-    Output:
-        dict: A dictionary containing:
-            - embeddings (torch.Tensor) : A tensor of all loaded embeddings.
-            - segment_contents (list)   : A list of text segments corresponding to the embeddings.
-            - num_documents (int)       : The number of unique documents processed.
-            - num_segment_contents (int): The total number of text segments.
+    Load embeddings and associated metadata from HDF5 files in a specified directory.
     """
 
     embeddings_list = []
     segment_contents_list = []
+    segment_sources_list = []
     model_names_set = set()
 
     num_documents = 0
     for file_path in glob.glob(os.path.join(embeddings_dir, "*.h5")):
         num_documents += 1
         embeddings_df = pd.read_hdf(file_path, key="df")
-        embeddings = embeddings_df.iloc[:, :-2].values
+        num_embedding_cols = embeddings_df.shape[1] - 3
+        embeddings = embeddings_df.iloc[:, :num_embedding_cols].values
+
         segment_contents = embeddings_df["segment_content"].values
+        source_titles = embeddings_df["source_title"].values
         model_name = embeddings_df["model_name"].values[0]
 
         embeddings_list.extend(embeddings)
         segment_contents_list.extend(segment_contents)
+        segment_sources_list.extend(source_titles)
         model_names_set.add(model_name)
     
     if not embeddings_list:
@@ -203,6 +216,7 @@ def load_embeddings(embeddings_dir):
     return {
         "embeddings": embeddings_tensor,
         "segment_contents": segment_contents_list,
+        "segment_sources": segment_sources_list,
         "num_documents": num_documents,
         "num_segment_contents": num_segment_contents,
         "model_name": model_name

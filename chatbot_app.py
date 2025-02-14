@@ -17,38 +17,43 @@ def main():
 
     corpus_embeddings = embeddings_data["embeddings"]
     segment_contents = embeddings_data["segment_contents"]
+    segment_sources = embeddings_data.get("segment_sources", [])
     model_name = embeddings_data.get("model_name", "Unknown Model")
-
-    print(f"Carregou embeddings de {embeddings_data['num_documents']} documentos.")
-    print(f"Total de segmentos: {embeddings_data['num_segment_contents']}")
-    print(f"Modelo de embedding utilizado: {model_name}")
 
     retrieval_model = load_model(model_name)
 
     while True:
-        user_query = input("\nDigite sua pergunta (ou 'exit' para sair): ")
-        if user_query.lower() in ["exit", "sair", "quit"]:
-            print("Encerrando chatbot...")
+        user_query = input("\nDigite sua pergunta (ou 'sair' para encerrar): ")
+        if user_query.lower() in ["sair", "encerrar"]:
+            print("Encerrando o chatbot...")
             break
 
         top_k = config["retrieve"]["top_k"]
-        top_segments, top_similarities = search_query(
+        top_segments, top_similarities, top_sources = search_query(
             user_query,
             corpus_embeddings,
             retrieval_model,
             segment_contents,
+            segment_sources,
             top_k=top_k
         )
 
-        print("\nTrechos recuperados:\n-------------------")
-        for i, segment in enumerate(top_segments):
-            print(f"Trecho {i+1} (similaridade={float(top_similarities[i]):.4f}): {segment}\n")
+        print("\nSegmentos recuperados:\n-------------------")
+        for i, (segment, source) in enumerate(zip(top_segments, top_sources)):
+            score = float(top_similarities[i])
+            print(f"Segmento {i+1} (similaridade={score:.4f}) da fonte '{source}':\n{segment}\n")
 
         context = "\n".join(top_segments)
         answer = generate_answer(user_query, context, config)
 
+        unique_references = set(top_sources)
+        references_text = "\n".join(unique_references)
+
         print("Resposta do chatbot:\n--------------------")
         print(answer)
-        
+        print("\nReferências:\n--------------------")
+        print(references_text)
+
+
 if __name__ == "__main__":
     main()

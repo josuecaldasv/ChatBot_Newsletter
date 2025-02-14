@@ -1,3 +1,4 @@
+# generate_utils.py
 import os
 import warnings
 warnings.filterwarnings("ignore")
@@ -10,7 +11,7 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 def generate_answer(query, context, config):
     """
-    Generate an answer from an LLM (OpenAI in this case) based on the user query and retrieved context segments.
+    Generate an answer from an LLM (OpenAI) based on the user query and retrieved context segments.
     """
     client = OpenAI(api_key=api_key)
 
@@ -18,14 +19,14 @@ def generate_answer(query, context, config):
     temperature = config["openai"]["temperature"]
 
     system_prompt = (
-        "Você é um assistente prestativo e especializado. "
-        "Recebeu um contexto de um documento interno. "
-        "Use o contexto fornecido para responder com precisão à pergunta do usuário. "
-        "Se o contexto não for relevante, faça o seu melhor para fornecer uma resposta útil "
-        "ou indique que não há informações disponíveis."
+        "You are a helpful and knowledgeable assistant. "
+        "You have been given some context from an internal document. "
+        "Please use the provided context to answer the user's question accurately. "
+        "If the context is not relevant, do your best to provide a helpful answer or "
+        "indicate no information is available."
     )
 
-    user_prompt = f"Contexto:\n{context}\n\nPergunta:\n{query}\n"
+    user_prompt = f"Context:\n{context}\n\nQuestion:\n{query}\n"
 
     response = client.chat.completions.create(
         model=model_name,

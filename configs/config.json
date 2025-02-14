@@ -8,8 +8,8 @@
     },
     "splitter": {
       "type": "recursive",
-      "chunk_size": 500,
-      "chunk_overlap": 50
+      "chunk_size": 512,
+      "chunk_overlap": 100
     },
     "openai": {
       "model_name": "gpt-4o-mini-2024-07-18",
